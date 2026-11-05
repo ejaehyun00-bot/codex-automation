@@ -12,6 +12,8 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+    env:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
     steps:
       - name: 저장소 체크아웃
         uses: actions/checkout@v4
@@ -32,7 +34,9 @@ jobs:
             --cd "$GITHUB_WORKSPACE" --output-last-message "$result_file" - < "$prompt_file"
 
           if [ -s "$result_file" ]; then
-            gh issue comment "${{ github.event.issue.number }}" --body-file "$result_file"
+            if which gh >/dev/null 2>&1; then
+              gh issue comment "${{ github.event.issue.number }}" --body-file "$result_file"
+            fi
           fi
 
       - name: 결과 커밋 및 PR 등록
@@ -47,6 +51,8 @@ jobs:
             git add -A
             git commit -m "feat: resolve #${{ github.event.issue.number }} via Codex"
             git push origin "$branch_name"
-            gh pr create --title "[Codex] ${{ github.event.issue.title }}" \
-                         --body "Resolves #${{ github.event.issue.number }}" --draft
+            if which gh >/dev/null 2>&1; then
+              gh pr create --title "[Codex] ${{ github.event.issue.title }}" \
+                           --body "Resolves #${{ github.event.issue.number }}" --draft
+            fi
           fi
