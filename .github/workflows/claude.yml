@@ -1,0 +1,55 @@
+name: Claude Runner Pipeline
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  run-claude:
+    if: github.event.label.name == 'claude'
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      PATH: /Users/jaehyeonmac/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Claude Code CLI 실행
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prompt_file=$(mktemp)
+          result_file=$(mktemp)
+          echo "${{ github.event.issue.body }}" > "$prompt_file"
+
+          CLAUDE_BIN="$(which claude 2>/dev/null || echo '/Users/jaehyeonmac/.local/bin/claude')"
+
+          "$CLAUDE_BIN" -p "$(cat $prompt_file)" --dangerously-skip-permissions > "$result_file" 2>&1 || true
+
+          if [ -s "$result_file" ]; then
+            if which gh >/dev/null 2>&1; then
+              gh issue comment "${{ github.event.issue.number }}" --body-file "$result_file"
+            fi
+          fi
+
+      - name: 결과 커밋 및 PR 등록
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            branch_name="claude/issue-${{ github.event.issue.number }}"
+            git checkout -b "$branch_name"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "feat: resolve #${{ github.event.issue.number }} via Claude"
+            git push origin "$branch_name"
+            if which gh >/dev/null 2>&1; then
+              gh pr create --title "[Claude] ${{ github.event.issue.title }}" \
+                           --body "Resolves #${{ github.event.issue.number }}" --draft
+            fi
+          fi
