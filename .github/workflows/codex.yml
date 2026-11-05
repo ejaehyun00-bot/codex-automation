@@ -1,0 +1,52 @@
+name: Codex Runner Pipeline
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  run-codex:
+    if: github.event.label.name == 'codex'
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Codex CLI 실행
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prompt_file=$(mktemp)
+          result_file=$(mktemp)
+          echo "${{ github.event.issue.body }}" > "$prompt_file"
+
+          CODEX_BIN="$(which codex 2>/dev/null || echo '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex')"
+
+          "$CODEX_BIN" exec \
+            --ephemeral --ignore-user-config --sandbox workspace-write \
+            -m gpt-6-luna -c model_reasoning_effort=low \
+            --cd "$GITHUB_WORKSPACE" --output-last-message "$result_file" - < "$prompt_file"
+
+          if [ -s "$result_file" ]; then
+            gh issue comment "${{ github.event.issue.number }}" --body-file "$result_file"
+          fi
+
+      - name: 결과 커밋 및 PR 등록
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            branch_name="codex/issue-${{ github.event.issue.number }}"
+            git checkout -b "$branch_name"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "feat: resolve #${{ github.event.issue.number }} via Codex"
+            git push origin "$branch_name"
+            gh pr create --title "[Codex] ${{ github.event.issue.title }}" \
+                         --body "Resolves #${{ github.event.issue.number }}" --draft
+          fi
